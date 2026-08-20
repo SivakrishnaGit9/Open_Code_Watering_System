@@ -33,7 +33,7 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 | **Actuation** | Water Pump | 12V Mini DC Submersible/Diaphragm | Provides sufficient head pressure to lift water from the bucket to the pots. |
 | **Switching** | Logic-Level MOSFET | IRLZ44N (or 3.3V Optoisolated Relay) | Fully saturates at 3.3V VGS (RDS(on) ≤ 0.025Ω) for reliable pump switching. |
 | **Safety** | Gate Pulldown | 10kΩ Resistor | Ensures GPIO 25 remains strictly LOW during ESP32 bootloader/strapping phase. |
-| **Safety** | Dry-Run Sensor | Mini Float Switch (Vertical) | Sits at bucket base; prevents pump burnout if water is exhausted. |
+| **Safety** | Dry-Run Sensor | INA219 Current Sensor Module | Monitors pump motor electrical load via I2C; detects dry-running when current drops below threshold. |
 | **Safety** | Anti-Siphon Valve | Inline Check Valve | Prevents gravity-fed siphoning/draining of the bucket when the pump is idle. |
 | **Enclosure** | Weatherproof Box | IP65 Plastic Electrical Junction Box | Protects electronics, wiring, and ESP32 from outdoor rain, humidity, and sun. |
 | **Hydraulics** | Tubing & Manifold | 1/4-inch PVC Tubing + 4-Way Cross | Standard flexible routing paired with a symmetric 1-to-4 splitter. |
@@ -49,8 +49,8 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
                  +-----------------------------------+-----------------------------------+
                  |                                   |                                   |
                  v                                   v                                   v
-   [ 12V-to-5V Buck Converter ]         [ IRLZ44N MOSFET Module ]              [ Mini Float Switch ]
-                 |                         (Gate pulled down via 10k)          (Connected to GPIO 33)
+   [ 12V-to-5V Buck Converter ]         [ IRLZ44N MOSFET Module ]              [ INA219 Current Sensor ]
+                 |                         (Gate pulled down via 10k)          (Connected via I2C SDA/SCL)
                  v                                   |                                   |
      [ ESP32 DevKit (5V VIN) ]                       v                                   v
                  |                          [ 12V DC Water Pump ]               [ Status LED (GPIO 2) ]
@@ -66,9 +66,9 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
                                           [ 4 Individual Plant Pots ]
 ```
 
-### GPIO Assignment & Hardware Safety Rules
+### GPIO & Interface Assignment & Hardware Safety Rules
 * **Pump Control:** GPIO 25 (Digital Output). An external 10kΩ pulldown resistor to GND ensures GPIO 25 stays strictly LOW during ESP32 power-on / bootloader execution.
-* **Float Switch:** GPIO 33 (Digital Input with INPUT_PULLUP). Reads LOW when water is present (float floating), HIGH when water is empty (float dropped).
+* **Current Monitoring (INA219):** I2C Bus (SDA / SCL, default GPIO 21 / 22). Monitors pump motor electrical current for dry-run detection.
 * **Status LED:** GPIO 2 (Digital Output). Visual system state feedback.
 * Strapping pins (GPIO 0, 2, 12, 15) are avoided for pump control to prevent accidental triggers during boot.
 
@@ -93,7 +93,7 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 * **FR-H3:** Water shall pass through an inline anti-siphon check valve into a 4-way barbed cross manifold, terminating in 4 individual **2 GPH pressure-compensating drippers** to ensure balanced fluid distribution.
 
 ### 4.4 Safety & Fault Mitigation Requirements
-* **FR-S1 (Dry-Run Protection):** A mini float switch installed at the base of the water bucket on GPIO 33 shall monitor water levels. If triggered (water empty), the ESP32 shall abort the watering cycle, lock out the pump, force GPIO 25 LOW, and signal a fault via rapid LED flash.
+* **FR-S1 (Dry-Run Protection):** An INA219 current sensor module wired in series with the 12V pump circuit shall monitor motor operating current via I2C. If current drops below the dry-run threshold during active pumping, the ESP32 shall abort the watering cycle, lock out the pump, force GPIO 25 LOW, and signal a fault via rapid LED flash.
 * **FR-S2 (Back-Siphon Prevention):** An anti-siphon check valve shall prevent passive gravity drainage of the bucket when the pump is idle.
 * **FR-S3 (Watchdog / Boot Safety):** Upon any unexpected system reset or boot cycle, the ESP32 initialization sequence shall immediately force GPIO 25 to LOW (OFF) before any other operations. The external 10kΩ pulldown resistor provides redundant hardware-level protection.
 
@@ -102,49 +102,41 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 ## 5. Operational State Machine
 
 ```text
-               +----------------------------------+
-               |            BOOT_INIT             |
-               | - Force GPIO 25 LOW              |
-               | - Read NVS state (time/count)    |
-               | - Init Float Pin & LED           |
-               +----------------+-----------------+
-                                |
-                                v
-               +----------------------------------+
-               |      STATE_IDLE_COUNTDOWN        |
-               | - Non-blocking 48h countdown     |
-               | - Save state to NVS every 5min   |
-               | - LED slow blink                 |
-               +----------------+-----------------+
-                                |
-                   (48-Hour Timer Reached)
-                                |
-                                v
-               +----------------------------------+
-               |        SAFETY_PRE_CHECK          |
-               | - Read Float Switch (GPIO 33)    |
-               +--------+----------------+--------+
-                        |                |
-             (Water OK) |                | (Water EMPTY)
-                        v                v
-+-----------------------+--+          +--+------------------------+
-|  STATE_WATERING_ACTIVE   |          |      FAULT_LOCKOUT        |
-| - Pump GPIO 25 HIGH      |          | - Force GPIO 25 LOW       |
-| - Run 60s timer          |          | - Rapid LED flash         |
-| - Continuous float check |          | - Block pump              |
-| - LED solid ON           |          | - Wait for float reset    |
-+-----------+--------------+          +---------------------------+
-            |
-   (60s Complete)
-            |
-            v
-+-----------+--------------+
-|    STATE_CYCLE_RESET     |
-| - GPIO 25 LOW            |
-| - Increment cycle count  |
-| - Write NVS (reset timer)|
-| - Log telemetry          |
-+-----------+--------------+
-            |
-            +------------------> (Return to STATE_IDLE_COUNTDOWN)
+                +----------------------------------+
+                |            BOOT_INIT             |
+                | - Force GPIO 25 LOW              |
+                | - Read NVS state (time/count)    |
+                | - Init I2C & INA219 / LED        |
+                +----------------+-----------------+
+                                 |
+                                 v
+                +----------------------------------+
+                |      STATE_IDLE_COUNTDOWN        |
+                | - Non-blocking 48h countdown     |
+                | - Save state to NVS every 5min   |
+                | - LED slow blink                 |
+                +----------------+-----------------+
+                                 |
+                    (48-Hour Timer Reached)
+                                 |
+                                 v
+                +----------------------------------+
+                |  STATE_WATERING_ACTIVE           |
+                | - Pump GPIO 25 HIGH              |
+                | - Run 60s timer                  |
+                | - Monitor pump current via INA219|
+                | - LED solid ON                   |
+                +--------+----------------+--------+
+                         |                |
+             (Current OK)|                | (Current Low / Dry-Run)
+                         v                v
+ +-----------------------+--+          +--+------------------------+
+ |    STATE_CYCLE_RESET     |          |      FAULT_LOCKOUT        |
+ | - GPIO 25 LOW            |          | - Force GPIO 25 LOW       |
+ | - Increment cycle count  |          | - Rapid LED flash         |
+ | - Write NVS (reset timer)|          | - Block pump              |
+ | - Log telemetry          |          | - Wait for manual reset   |
+ +-----------+--------------+          +---------------------------+
+             |
+             +------------------> (Return to STATE_IDLE_COUNTDOWN)
 ```
