@@ -61,6 +61,10 @@ git add path/to/file1 path/to/file2
 - **Scope**: What area/module is affected?
 - **Description**: One-line summary of what changed (present tense, imperative mood, <72 chars)
 
+### 3.5. Run Security Audit
+
+Before executing commit, verify that no secrets, unintended files, or security risks are present by invoking the `security-auditor` skill or checking workspace files.
+
 ### 4. Execute Commit & Push
 
 ```bash
@@ -70,6 +74,7 @@ git push
 
 ## Git Safety Protocol
 
+- **NEVER commit or push without explicit user approval.** (Note: If this chat session closes, context is lost, so explicit user permission must be obtained afresh).
 - NEVER update git config
 - NEVER run destructive commands without explicit request
 - NEVER skip hooks unless user asks
