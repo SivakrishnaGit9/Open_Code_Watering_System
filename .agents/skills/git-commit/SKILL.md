@@ -65,17 +65,17 @@ git add path/to/file1 path/to/file2
 
 Before executing commit, verify that no secrets, unintended files, or security risks are present by invoking the `security-auditor` skill or checking workspace files.
 
-### 4. Execute Commit & Push
+### 4. Execute Commit Only
 
 ```bash
 git commit -m "<type>[scope]: <description>"
-git push
 ```
-*(By default, execute both commit and push when commit approval is granted, unless the user explicitly requests commit-only or no push.)*
+*(Execute local commit only. **Never** push to remote unless the user explicitly requests a push.)*
 
 ## Git Safety Protocol
 
-- **NEVER commit or push without explicit user approval.** (Once commit approval is granted, push is included by default unless restricted by the user).
+- **NEVER commit or push without explicit user approval.**
+- **NEVER push to remote repository unless explicitly requested by the user.**
 - NEVER update git config
 - NEVER run destructive commands without explicit request
 - NEVER skip hooks unless user asks
