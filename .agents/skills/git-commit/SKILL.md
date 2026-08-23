@@ -71,10 +71,11 @@ Before executing commit, verify that no secrets, unintended files, or security r
 git commit -m "<type>[scope]: <description>"
 git push
 ```
+*(By default, execute both commit and push when commit approval is granted, unless the user explicitly requests commit-only or no push.)*
 
 ## Git Safety Protocol
 
-- **NEVER commit or push without explicit user approval.** (Note: If this chat session closes, context is lost, so explicit user permission must be obtained afresh).
+- **NEVER commit or push without explicit user approval.** (Once commit approval is granted, push is included by default unless restricted by the user).
 - NEVER update git config
 - NEVER run destructive commands without explicit request
 - NEVER skip hooks unless user asks
