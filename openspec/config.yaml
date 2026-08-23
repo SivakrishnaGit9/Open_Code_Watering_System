@@ -1,32 +1,41 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Tech stack: C++, Arduino framework, ESP32 NodeMCU / DevKit
+  Hardware: 12V DC pump, IRLZ44N MOSFET (GPIO 25), INA219 current sensor (@ 0x40), LM2596 buck converter
+  Conventions: Conventional commits, single authoritative spec (FSD_V_1_0.md)
+  Domain: Automated IoT Plant Watering System (48h alternate-day schedule, 60s watering, NVS state persistence)
+  
+  Mandatory Skills & Workflows:
+    - grill-with-docs: Use for stress-testing design decisions and documentation
+    - domain-modeling (ADRs): Use when architectural decisions are required
+    - git-commit: Use for conventional commits and archiving
+    - security-auditor: Run for new file imports and before committing
+    - test-driven-development: Follow before implementing any feature/fix, and verify tests pass before commit
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - Always conform to FSD_V_1_0.md as the sole source of truth
+    - Ensure all hardware safety rules (GPIO 25 pulldown, INA219 dry-run detection) are respected
+    - Use the grill-with-docs skill to rigorously stress-test and document design proposals
+  design:
+    - Use the domain-modeling skill (ADR format) alongside C4 model architecture updates when making significant architectural decisions, documenting trade-offs, pin mappings, and state machine states clearly
+  specs:
+    - Ensure all delta specifications directly trace back to FSD_V_1_0.md
+    - Maintain strict consistency across system context, container, and component definitions
+  tasks:
+    - Break implementation tasks into modular chunks
+    - Require explicit user approval before any file edits, commits, or pushes
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - Keep test and implementation summaries concise
+      - Use non-blocking millis() timers and Preferences API for NVS persistence
+      - Follow the test-driven-development skill before writing code
+      - Run security-auditor before new file imports and pre-commit
+  archive:
+    guidance:
+      - Summarize the archive outcome before finishing
+      - Use git-commit skill for archival
+
