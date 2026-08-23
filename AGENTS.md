@@ -20,7 +20,7 @@
 | State persistence | NVS (Preferences API) every 5 min during countdown |
 | Debug web server | `#define DEBUG_WEB_SERVER` — disabled in production |
 | Strapping pins | GPIO 0, 2, 12, 15 avoided for pump control |
-| GPIO map | Pump=25, Float=33, LED=2 |
+| GPIO map & Sensors | Pump=25, LED=2, I2C SDA=21, SCL=22 (INA219 Current Sensor @ 0x40, dry-run threshold < 30mA) |
 
 ## Conventions
 
