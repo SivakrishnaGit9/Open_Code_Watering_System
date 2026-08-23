@@ -61,10 +61,11 @@ git add path/to/file1 path/to/file2
 - **Scope**: What area/module is affected?
 - **Description**: One-line summary of what changed (present tense, imperative mood, <72 chars)
 
-### 4. Execute Commit
+### 4. Execute Commit & Push
 
 ```bash
 git commit -m "<type>[scope]: <description>"
+git push
 ```
 
 ## Git Safety Protocol
