@@ -25,45 +25,42 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 
 ## 2. Complete Bill of Materials (BOM) & Component Justification
 
-| Category | Component Item | Specification / Model | Engineering Justification |
+| Category | Component Item | Specification / Model & SKU | Engineering Justification |
 | :--- | :--- | :--- | :--- |
-| **Control** | Microcontroller | ESP32 DevKit / NodeMCU | Low-power capabilities, NVS flash memory for state persistence, robust hardware timers, built-in Wi-Fi for development debugging. |
-| **Power Supply** | Wall Power Adapter | 12V DC, 2A–3A | Primary power input; directly energizes 12V pump bus and step-down buck converter. |
-| **Regulation** | DC-DC Step-Down | 12V-to-5V Buck Converter (LM2596) | Steps down 12V input to regulated 5V to safely power the ESP32 logic via VIN pin. |
-| **Actuation** | Water Pump | 12V Mini DC Submersible/Diaphragm | Provides sufficient head pressure to lift water from the bucket to the pots. |
-| **Switching** | Logic-Level MOSFET | IRLZ44N (or 3.3V Optoisolated Relay) | Fully saturates at 3.3V VGS (RDS(on) ≤ 0.025Ω) for reliable pump switching. |
-| **Safety** | Gate Pulldown | 10kΩ Resistor | Ensures GPIO 25 remains strictly LOW during ESP32 bootloader/strapping phase. |
-| **Safety** | Dry-Run Sensor | INA219 Current Sensor Module | Monitors pump motor electrical load via I2C; detects dry-running when current drops below threshold. |
-| **Safety** | Anti-Siphon Valve | Inline Check Valve | Prevents gravity-fed siphoning/draining of the bucket when the pump is idle. |
-| **Enclosure** | Weatherproof Box | IP65 Plastic Electrical Junction Box | Protects electronics, wiring, and ESP32 from outdoor rain, humidity, and sun. |
-| **Hydraulics** | Tubing & Manifold | 1/4-inch PVC Tubing + 4-Way Cross | Standard flexible routing paired with a symmetric 1-to-4 splitter. |
-| **Hydraulics** | Emitters | 4x Pressure-Compensating Drippers (2 GPH) | Guarantees exact, equal water distribution (~125ml per pot) regardless of path length. |
+| **Control** | Microcontroller | ESP-WROOM-32D ESP32 NodeMCU (SKU: PRO2049) | Low-power capabilities, NVS flash memory for state persistence, robust hardware timers, built-in Wi-Fi for development debugging. |
+| **Power Supply** | Wall Power Adapter | FEDUS 12V 3A SMPS Adapter (Table Top) | Primary power input; directly energizes 12V pump bus and step-down buck converter. |
+| **Power Connectors** | DC Power Connectors | 5mm DC Jack Socket/Male Pairs, Panel Mounts (SKU: R261229, 699534, 44425) | Secure power distribution and disconnections between enclosure and adapter. |
+| **Regulation** | DC-DC Step-Down | LM2596S DC-DC Buck Converter (SKU: 11548) | Steps down 12V input to regulated 5V to safely power the ESP32 logic. |
+| **Actuation** | Water Pump | Ultra-Quiet DC 12V 240L/H Brushless Submersible Pump (SKU: 815882) | Provides reliable water flow from the bucket reservoir. |
+| **Switching** | Logic-Level MOSFET | IRFZ44N MOSFET IC Dip-3 Pin (SKU: 1869827) | Fully saturates at logic level for reliable pump switching. |
+| **Safety** | Gate Pulldown | Yageo 10kΩ Metal Film Resistor (SKU: R227457) | Ensures GPIO 25 remains strictly LOW during ESP32 bootloader phase. |
+| **Safety** | Dry-Run Sensor | INA219 I2C Current & Power Monitor (SKU: 421237) | Monitors pump motor electrical load via I2C for dry-run detection. |
+| **Safety** | Anti-Siphon Valve | CentIoT 4mm One-Way Non-Return Check Valve | Prevents gravity-fed siphoning/draining of the bucket when pump is idle. |
+| **Enclosure** | Weatherproof Box | 100x68x50mm Transparent IP65 ABS Junction Box (SKU: R260518) | Protects electronics, wiring, and ESP32 from moisture and dust. |
+| **Interfacing** | Switches & LEDs | Rocker Switch (1265378), Toggle Switches, Push Buttons, 10mm Red/Green LEDs (827894, 827892) | Manual controls, power switching, and visual status indication. |
+| **Prototyping** | Wires & Boards | MB102 Breadboard, 2x8/7x9cm PCB Boards, 26AWG Teflon Wires (Red/Black) | Circuit wiring, prototyping, and internal connections. |
+| **Hydraulics** | Emitters & Tubing | 4x Pressure-Compensating Drippers (2 GPH) + 4mm Tubing | Guarantees exact, equal water distribution across plant pots. |
 
 ---
 
 ## 3. End-to-End System Architecture & Wiring Schematic
 
-```text
-[ 12V DC Wall Power Adapter (2A-3A) ]
-                 |
-                 +-----------------------------------+-----------------------------------+
-                 |                                   |                                   |
-                 v                                   v                                   v
-   [ 12V-to-5V Buck Converter ]         [ IRLZ44N MOSFET Module ]              [ INA219 Current Sensor ]
-                 |                         (Gate pulled down via 10k)          (Connected via I2C SDA/SCL)
-                 v                                   |                                   |
-     [ ESP32 DevKit (5V VIN) ]                       v                                   v
-                 |                          [ 12V DC Water Pump ]               [ Status LED (GPIO 2) ]
-                 |                                   |
-                 +--(GPIO 25 Control)----------------+
-                                                     v
-                                        [ Anti-Siphon Check Valve ]
-                                                     |
-                                       [ 4-Way Barbed Cross Manifold ]
-                                                     |
-                                  [ 4x 2 GPH Pressure-Compensating Drippers ]
-                                                     |
-                                          [ 4 Individual Plant Pots ]
+```mermaid
+graph TD
+    power["12V DC Wall Power Adapter (FEDUS 3A SMPS)"] -->|12V Bus| buck["12V-to-5V Buck Converter (LM2596S)"]
+    power -->|12V Supply| ina219["INA219 Current Sensor<br/><i>(Wired in Series on 12V Rail)</i>"]
+    ina219 -->|Sensing Load| mosfet["IRFZ44N MOSFET Module<br/><i>(10kΩ Gate Pulldown to GND)</i>"]
+
+    buck -->|5V Regulated VIN| esp32["ESP32 DevKit / NodeMCU"]
+    esp32 -->|GPIO 25 Control| mosfet
+    esp32 -->|GPIO 2 Status| led["Status LED"]
+    esp32 -.->|I2C SDA/SCL Telemetry| ina219
+    
+    mosfet -->|Switched 12V| pump["12V DC Water Pump (240L/H)"]
+    pump --> valve["Anti-Siphon Check Valve"]
+    valve --> manifold["4-Way Barbed Cross Manifold"]
+    manifold --> drippers["4x 2 GPH Pressure-Compensating Drippers"]
+    drippers --> pots["4 Individual Plant Pots"]
 ```
 
 ### GPIO & Interface Assignment & Hardware Safety Rules
@@ -101,42 +98,43 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 
 ## 5. Operational State Machine
 
-```text
-                +----------------------------------+
-                |            BOOT_INIT             |
-                | - Force GPIO 25 LOW              |
-                | - Read NVS state (time/count)    |
-                | - Init I2C & INA219 / LED        |
-                +----------------+-----------------+
-                                 |
-                                 v
-                +----------------------------------+
-                |      STATE_IDLE_COUNTDOWN        |
-                | - Non-blocking 48h countdown     |
-                | - Save state to NVS every 5min   |
-                | - LED slow blink                 |
-                +----------------+-----------------+
-                                 |
-                    (48-Hour Timer Reached)
-                                 |
-                                 v
-                +----------------------------------+
-                |  STATE_WATERING_ACTIVE           |
-                | - Pump GPIO 25 HIGH              |
-                | - Run 60s timer                  |
-                | - Monitor pump current via INA219|
-                | - LED solid ON                   |
-                +--------+----------------+--------+
-                         |                |
-             (Current OK)|                | (Current Low / Dry-Run)
-                         v                v
- +-----------------------+--+          +--+------------------------+
- |    STATE_CYCLE_RESET     |          |      FAULT_LOCKOUT        |
- | - GPIO 25 LOW            |          | - Force GPIO 25 LOW       |
- | - Increment cycle count  |          | - Rapid LED flash         |
- | - Write NVS (reset timer)|          | - Block pump              |
- | - Log telemetry          |          | - Wait for manual reset   |
- +-----------+--------------+          +---------------------------+
-             |
-             +------------------> (Return to STATE_IDLE_COUNTDOWN)
+```mermaid
+stateDiagram-v2
+    [*] --> BOOT_INIT
+    BOOT_INIT --> STATE_IDLE_COUNTDOWN : Force GPIO 25 LOW & Load NVS
+
+    state STATE_IDLE_COUNTDOWN {
+        [*] --> Counting
+        Counting : 48-Hour non-blocking countdown
+        Counting : NVS save every 5 min
+        Counting : LED slow pulse
+    }
+
+    STATE_IDLE_COUNTDOWN --> STATE_WATERING_ACTIVE : 48h Timer Reached
+
+    state STATE_WATERING_ACTIVE {
+        [*] --> Pumping
+        Pumping : Pump GPIO 25 HIGH (60s timer)
+        Pumping : Monitor current via INA219 (I2C)
+        Pumping : LED solid ON
+    }
+
+    STATE_WATERING_ACTIVE --> STATE_CYCLE_RESET : Current OK (60s completed)
+    STATE_WATERING_ACTIVE --> FAULT_LOCKOUT : Current Low (Dry-Run Detected)
+
+    state STATE_CYCLE_RESET {
+        [*] --> Resetting
+        Resetting : Force GPIO 25 LOW
+        Resetting : Increment cycle count & reset timer
+        Resetting : Save state to NVS
+    }
+
+    STATE_CYCLE_RESET --> STATE_IDLE_COUNTDOWN : Resume Countdown
+
+    state FAULT_LOCKOUT {
+        [*] --> Locked
+        Locked : Force GPIO 25 LOW (Emergency Stop)
+        Locked : Rapid LED Flash
+        Locked : Await Manual Reset / Reboot
+    }
 ```
