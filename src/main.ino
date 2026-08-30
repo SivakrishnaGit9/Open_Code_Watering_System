@@ -13,6 +13,7 @@
 const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
 const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
+const unsigned long TELEMETRY_INTERVAL_MS = 4000UL;                 // 4 seconds periodic telemetry
 const float DRY_RUN_THRESHOLD_MA = 30.0f;                           // < 30mA dry-run threshold
 
 Preferences preferences;
@@ -29,6 +30,7 @@ SystemState currentState = STATE_IDLE;
 unsigned long lastMillis = 0;
 unsigned long remainingCountdownMs = WATERING_INTERVAL_MS;
 unsigned long lastNvsSaveMs = 0;
+unsigned long lastTelemetryMs = 0;
 unsigned long wateringStartMs = 0;
 unsigned long cycleCount = 0;
 bool ina219Available = false;
@@ -69,12 +71,23 @@ void setup() {
 
   lastMillis = millis();
   lastNvsSaveMs = millis();
+  lastTelemetryMs = millis();
 }
 
 void loop() {
   unsigned long currentMillis = millis();
   unsigned long elapsed = currentMillis - lastMillis;
   lastMillis = currentMillis;
+
+  // Periodic throttled telemetry handler (every 4 seconds)
+  if (currentMillis - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
+    lastTelemetryMs = currentMillis;
+    float busvoltage = ina219Available ? ina219.getBusVoltage_V() : 0.0f;
+    float current_mA = ina219Available ? ina219.getCurrent_mA() : 0.0f;
+    unsigned long uptimeSec = currentMillis / 1000UL;
+    Serial.printf("[TELEMETRY] Uptime: %lus | State: %d | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
+                  uptimeSec, (int)currentState, busvoltage, current_mA, remainingCountdownMs / 1000UL);
+  }
 
   switch (currentState) {
     case STATE_IDLE: {
