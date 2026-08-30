@@ -54,7 +54,7 @@ void setup() {
   cycleCount = preferences.getULong("cycles", 0);
   preferences.end();
 
-  Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu\n", 
+  Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu\r\n", 
                 remainingCountdownMs / 1000UL, cycleCount);
 
   // Initialize I2C and INA219 current sensor
@@ -85,7 +85,7 @@ void loop() {
       if (ina219Available) {
         float busvoltage = ina219.getBusVoltage_V();
         float current_mA = ina219.getCurrent_mA();
-        Serial.printf("[DEBUG IDLE] Bus: %.2fV | Current: %.2fmA\n", busvoltage, current_mA);
+        Serial.printf("[DEBUG IDLE] Bus: %.2fV | Current: %.2fmA\r\n", busvoltage, current_mA);
       }
 #endif
 
@@ -123,7 +123,7 @@ void loop() {
       // Check current draw via INA219 if available
       if (ina219Available) {
         float current_mA = ina219.getCurrent_mA();
-        Serial.printf("Pumping Active -> Current: %.2f mA\n", current_mA);
+        Serial.printf("Pumping Active -> Current: %.2f mA\r\n", current_mA);
 
         if (current_mA < DRY_RUN_THRESHOLD_MA) {
           Serial.println("ERROR: Dry-run detected! Current below 30mA threshold. Aborting watering cycle!");
