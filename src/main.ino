@@ -1,11 +1,20 @@
 #include <Preferences.h>
 #include <Wire.h>
 #include <Adafruit_INA219.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
 
 // Debug macro switch (define to enable continuous telemetry printing for testing)
 #define DEBUG_SENSOR_TELEMETRY 1
 
-// Pin definitions per FSD v2.0
+// Wi-Fi Access Point (AP) and UDP Telemetry configuration
+#define AP_SSID "PlantWatering_AP"
+#define AP_PASSWORD "plant_password_123"
+#define UDP_PORT 8888
+
+WiFiUDP udp;
+IPAddress broadcastIp(192, 168, 4, 255); // AP subnet broadcast
+bool wifiApActive = false;
 #define PUMP_PIN 25
 #define LED_PIN  2
 
@@ -69,6 +78,13 @@ void setup() {
     Serial.println("WARNING: INA219 sensor not found! Dry-run protection will operate in fallback mode.");
   }
 
+  // Initialize Wi-Fi Access Point (AP) mode
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  IPAddress apIP = WiFi.softAPIP();
+  wifiApActive = true;
+  Serial.printf("Wi-Fi Access Point Started! SSID: %s | AP IP: %s\r\n", AP_SSID, apIP.toString().c_str());
+  udp.begin(UDP_PORT);
+
   lastMillis = millis();
   lastNvsSaveMs = millis();
   lastTelemetryMs = millis();
@@ -85,8 +101,21 @@ void loop() {
     float busvoltage = ina219Available ? ina219.getBusVoltage_V() : 0.0f;
     float current_mA = ina219Available ? ina219.getCurrent_mA() : 0.0f;
     unsigned long uptimeSec = currentMillis / 1000UL;
-    Serial.printf("[TELEMETRY] Uptime: %lus | State: %d | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
-                  uptimeSec, (int)currentState, busvoltage, current_mA, remainingCountdownMs / 1000UL);
+    
+    char logBuffer[160];
+    snprintf(logBuffer, sizeof(logBuffer),
+             "[TELEMETRY] Uptime: %lus | State: %d | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
+             uptimeSec, (int)currentState, busvoltage, current_mA, remainingCountdownMs / 1000UL);
+    
+    // Output to Serial
+    Serial.print(logBuffer);
+
+    // Broadcast over UDP if AP is active
+    if (wifiApActive) {
+      udp.beginPacket(broadcastIp, UDP_PORT);
+      udp.write((uint8_t*)logBuffer, strlen(logBuffer));
+      udp.endPacket();
+    }
   }
 
   switch (currentState) {
