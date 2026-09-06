@@ -19,7 +19,7 @@ To eliminate real-world field failure points (such as motor dry-burns, accidenta
 * Mains-powered via 12V DC wall power adapter for 100% uptime reliability.
 * NVS memory persistence to survive household power flickers/outages without missing or duplicating watering cycles.
 * Hardware-level failure mitigations including dry-run protection, anti-siphon flow control, and GPIO pulldown resistors.
-* Local feedback via status LEDs, USB serial logging, and optional development-only Wi-Fi web dashboard (compiled out for production).
+* Local feedback via status LEDs, USB serial logging, Wi-Fi Access Point mode, periodic UDP telemetry broadcasts, and local HTTP Over-the-Air (OTA) firmware update web portal.
 
 ---
 
@@ -82,7 +82,7 @@ graph TD
 * **FR-C1:** The ESP32 shall maintain an internal non-blocking countdown timer corresponding to a 48-hour watering interval.
 * **FR-C2 (NVS State Persistence):** Every 5 minutes during countdown, the ESP32 shall write the remaining countdown time and total watering cycle count to Non-Volatile Storage (NVS / Preferences API). Upon reboot or power restoration, the countdown shall resume from the last saved state.
 * **FR-C3:** The system shall provide visual feedback via status LEDs (slow blink for idle countdown, solid ON during active pumping, rapid flash for error/fault conditions).
-* **FR-C4 (Debug Web Server):** A local HTTP web server for system telemetry and manual pump overrides shall be available only during development, controlled by the `#define DEBUG_WEB_SERVER` compile flag. In production builds, the Wi-Fi stack is disabled for maximum stability.
+* **FR-C4 (Wireless Telemetry & OTA Firmware Updates):** The ESP32 shall operate an autonomous Wi-Fi Access Point (`PlantWatering_AP`), broadcasting periodic system telemetry packets via UDP every 4 seconds. Additionally, it shall host a synchronous HTTP web server (`WebServer.h` + `Update.h`) on port 80 (`192.168.4.1`) to support secure Over-the-Air (OTA) firmware binary uploads using a dual-app OTA partition layout (`ota_0` and `ota_1`).
 
 ### 4.3 Actuation & Hydraulics Requirements
 * **FR-H1:** The system shall utilize a 12V mini DC water pump switched via an IRLZ44N logic-level MOSFET module (or 3.3V optoisolated relay) controlled by digital GPIO 25 from the ESP32. A 10kΩ external pulldown resistor shall be installed on the MOSFET gate line.

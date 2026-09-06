@@ -1,7 +1,7 @@
 # C2: Container Architecture - Automated Plant Watering System
 
 ## Overview
-The C2 Container diagram breaks down the system into high-level runtime containers, illustrating the ESP32 firmware application, onboard NVS storage, and electrical hardware subsystems.
+The C2 Container diagram breaks down the system into high-level runtime containers, illustrating the ESP32 firmware application, onboard NVS storage, Wi-Fi AP/OTA containers, and electrical hardware subsystems.
 
 ```mermaid
 graph TD
@@ -26,9 +26,14 @@ graph TD
     pump --> valve["Anti-Siphon Check Valve"]
     valve --> manifold["4-Way Manifold & 2 GPH Drippers"]
     manifold --> pots["4 Plant Pots"]
+
+    client["Client Device (Phone / Laptop)"] -->|Wi-Fi AP: PlantWatering_AP| esp32
+    esp32 -->|UDP Telemetry Broadcast (Port 8888)| client
+    client -->|HTTP OTA Firmware Upload (/update)| esp32
 ```
 
 ## Containers
-1. **ESP32 Firmware:** Runs the core non-blocking countdown timer, pump control logic, and safety monitors.
+1. **ESP32 Firmware:** Runs the core non-blocking countdown timer, pump control, UDP telemetry broadcast, and HTTP OTA web server.
 2. **NVS Flash Storage:** Persists countdown timer state every 5 minutes to survive power outages.
 3. **Hardware Actuators & Sensors:** 12V pump, IRLZ44N MOSFET switch, INA219 current sensor, and buck converter.
+4. **Wireless Interface:** Wi-Fi Access Point and OTA dual-app partition slots (`ota_0`, `ota_1`).
