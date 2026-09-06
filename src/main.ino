@@ -3,6 +3,8 @@
 #include <Adafruit_INA219.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WebServer.h>
+#include <Update.h>
 
 // Debug macro switch (define to enable continuous telemetry printing for testing)
 #define DEBUG_SENSOR_TELEMETRY 1
@@ -13,10 +15,27 @@
 #define UDP_PORT 8888
 
 WiFiUDP udp;
+WebServer server(80);
 IPAddress broadcastIp(192, 168, 4, 255); // AP subnet broadcast
 bool wifiApActive = false;
 #define PUMP_PIN 25
 #define LED_PIN  2
+
+const char* serverIndex = 
+  "<!DOCTYPE html><html>"
+  "<head><title>Plant Watering OTA Update</title>"
+  "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+  "<style>body{font-family:sans-serif;text-align:center;padding:20px;background:#f4f4f9;color:#333;}"
+  "h2{color:#2e7d32;}.card{background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 8px rgba(0,0,0,0.1);max-width:400px;margin:0 auto;}"
+  "input[type='file']{margin:15px 0;}.btn{background:#2e7d32;color:white;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;font-size:16px;}"
+  ".btn:hover{background:#1b5e20;}</style></head>"
+  "<body><div class='card'>"
+  "<h2>Plant Watering System</h2>"
+  "<p>Over-the-Air Firmware Update Portal</p>"
+  "<form method='POST' action='/update' enctype='multipart/form-data'>"
+  "<input type='file' name='update'><br>"
+  "<input type='submit' class='btn' value='Update Firmware'>"
+  "</form></div></body></html>";
 
 // Timing and thresholds per FSD v2.0
 const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
@@ -84,6 +103,38 @@ void setup() {
   wifiApActive = true;
   Serial.printf("Wi-Fi Access Point Started! SSID: %s | AP IP: %s\r\n", AP_SSID, apIP.toString().c_str());
   udp.begin(UDP_PORT);
+
+  // Initialize HTTP OTA Web Server
+  server.on("/", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", serverIndex);
+  });
+  server.on("/update", HTTP_POST, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", Update.hasError() ? "FAIL" : "SUCCESS. Rebooting...");
+    delay(1000);
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("OTA Update Start: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) {
+        Serial.printf("OTA Update Success: %u bytes\nRebooting...\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  server.begin();
+  Serial.println("HTTP OTA Server started on port 80.");
 
   lastMillis = millis();
   lastNvsSaveMs = millis();
@@ -203,5 +254,6 @@ void loop() {
     }
   }
 
+  server.handleClient();
   delay(100);
 }
