@@ -14,7 +14,7 @@ graph TD
         ina219["INA219 Current Sensor (I2C)"]
         
         esp32 -->|Stores Countdown & State| nvs
-        esp32 -->|PWM / Digital GPIO 25| mosfet
+        esp32 -->|PWM / Digital GPIO 18| mosfet
         esp32 -->|I2C Telemetry| ina219
     end
 

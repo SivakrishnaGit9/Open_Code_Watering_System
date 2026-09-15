@@ -2,7 +2,7 @@ schema: spec-driven
 
 context: |
   Tech stack: C++, Arduino framework, ESP32 NodeMCU / DevKit
-  Hardware: 12V DC pump, IRLZ44N MOSFET (GPIO 25), INA219 current sensor (@ 0x40), LM2596 buck converter
+  Hardware: 12V DC pump, IRLZ44N MOSFET (GPIO 18), INA219 current sensor (@ 0x40), LM2596 buck converter
   Conventions: Conventional commits, single authoritative spec (FSD_V_1_0.md)
   Domain: Automated IoT Plant Watering System (48h alternate-day schedule, 60s watering, NVS state persistence)
   
@@ -16,7 +16,7 @@ context: |
 rules:
   proposal:
     - Always conform to FSD_V_1_0.md as the sole source of truth
-    - Ensure all hardware safety rules (GPIO 25 pulldown, INA219 dry-run detection) are respected
+    - Ensure all hardware safety rules (GPIO 18 pulldown, INA219 dry-run detection) are respected
     - Use the grill-with-docs skill to rigorously stress-test and document design proposals
   design:
     - Use the domain-modeling skill (ADR format) alongside C4 model architecture updates when making significant architectural decisions, documenting trade-offs, pin mappings, and state machine states clearly

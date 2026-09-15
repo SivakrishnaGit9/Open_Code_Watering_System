@@ -7,7 +7,7 @@
 #include <Update.h>
 
 // Debug macro switch (define to enable continuous telemetry printing for testing)
-#define DEBUG_SENSOR_TELEMETRY 1
+#define DEBUG_SENSOR_TELEMETRY 0
 
 // Wi-Fi Access Point (AP) and UDP Telemetry configuration
 #define AP_SSID "PlantWatering_AP"
@@ -18,8 +18,9 @@ WiFiUDP udp;
 WebServer server(80);
 IPAddress broadcastIp(192, 168, 4, 255); // AP subnet broadcast
 bool wifiApActive = false;
-#define PUMP_PIN 25
+#define PUMP_PIN 18
 #define LED_PIN  2
+#define BUTTON_PIN 4
 
 const char* serverIndex = 
   "<!DOCTYPE html><html>"
@@ -41,11 +42,28 @@ const char* serverIndex =
 const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
 const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
-const unsigned long TELEMETRY_INTERVAL_MS = 4000UL;                 // 4 seconds periodic telemetry
-const float DRY_RUN_THRESHOLD_MA = 30.0f;                           // < 30mA dry-run threshold
+const unsigned long TELEMETRY_INTERVAL_MS = 5000UL;                 // 5 seconds periodic telemetry
+const float DRY_RUN_THRESHOLD_MA = -30.0f;                           // < 30mA dry-run threshold
 
 Preferences preferences;
 Adafruit_INA219 ina219;
+
+// Button and Wi-Fi toggle variables
+bool wifiEnabled = true;
+int lastButtonReading = HIGH;
+int buttonState = HIGH;
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 50UL;
+
+unsigned long pressStartTime = 0;
+bool isPressed = false;
+bool longPressTriggered = false;
+
+unsigned long firstPressTime = 0;
+int clickCount = 0;
+bool waitingForClicks = false;
+const unsigned long TOTAL_WINDOW_MS = 4000UL;
+const unsigned long LONG_PRESS_MS = 2000UL;
 
 enum SystemState {
   STATE_IDLE,
@@ -63,6 +81,31 @@ unsigned long wateringStartMs = 0;
 unsigned long cycleCount = 0;
 bool ina219Available = false;
 
+const char* getStateName(SystemState state) {
+  switch (state) {
+    case STATE_IDLE: return "IDLE";
+    case STATE_WATERING: return "WATERING";
+    case STATE_FAULT: return "FAULT";
+    default: return "UNKNOWN";
+  }
+}
+
+void systemLog(const char* format, ...) {
+  char logBuffer[200];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(logBuffer, sizeof(logBuffer), format, args);
+  va_end(args);
+
+  Serial.print(logBuffer);
+
+  if (wifiApActive) {
+    udp.beginPacket(broadcastIp, UDP_PORT);
+    udp.write((uint8_t*)logBuffer, strlen(logBuffer));
+    udp.endPacket();
+  }
+}
+
 void setup() {
   // CRITICAL: Force pump pin LOW immediately upon boot before any other operations
   pinMode(PUMP_PIN, OUTPUT);
@@ -70,6 +113,8 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   Serial.begin(115200);
   delay(500);
@@ -82,10 +127,11 @@ void setup() {
   preferences.begin("plant-water", false);
   remainingCountdownMs = preferences.getULong("remaining", WATERING_INTERVAL_MS);
   cycleCount = preferences.getULong("cycles", 0);
+  wifiEnabled = preferences.getBool("wifi_enabled", true);
   preferences.end();
 
-  Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu\r\n", 
-                remainingCountdownMs / 1000UL, cycleCount);
+  Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu | Wi-Fi Enabled: %s\r\n", 
+                remainingCountdownMs / 1000UL, cycleCount, wifiEnabled ? "YES" : "NO");
 
   // Initialize I2C and INA219 current sensor
   Wire.begin(21, 22);
@@ -97,12 +143,19 @@ void setup() {
     Serial.println("WARNING: INA219 sensor not found! Dry-run protection will operate in fallback mode.");
   }
 
-  // Initialize Wi-Fi Access Point (AP) mode
-  WiFi.softAP(AP_SSID, AP_PASSWORD);
-  IPAddress apIP = WiFi.softAPIP();
-  wifiApActive = true;
-  Serial.printf("Wi-Fi Access Point Started! SSID: %s | AP IP: %s\r\n", AP_SSID, apIP.toString().c_str());
-  udp.begin(UDP_PORT);
+  // Initialize Wi-Fi Access Point (AP) mode if enabled
+  if (wifiEnabled) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    IPAddress apIP = WiFi.softAPIP();
+    wifiApActive = true;
+    Serial.printf("Wi-Fi Access Point Started! SSID: %s | AP IP: %s\r\n", AP_SSID, apIP.toString().c_str());
+    udp.begin(UDP_PORT);
+  } else {
+    WiFi.mode(WIFI_OFF);
+    wifiApActive = false;
+    Serial.println("Wi-Fi AP is disabled via NVS preference.");
+  }
 
   // Initialize HTTP OTA Web Server
   server.on("/", HTTP_GET, []() {
@@ -146,7 +199,123 @@ void loop() {
   unsigned long elapsed = currentMillis - lastMillis;
   lastMillis = currentMillis;
 
-  // Periodic throttled telemetry handler (every 4 seconds)
+  // Button polling & non-blocking multi-click / long-press handler
+  int reading = digitalRead(BUTTON_PIN);
+  if (reading != lastButtonReading) {
+    lastDebounceTime = currentMillis;
+  }
+  lastButtonReading = reading;
+
+  if ((currentMillis - lastDebounceTime) > debounceDelay) {
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      if (buttonState == LOW) {
+        // Press down (falling edge)
+        pressStartTime = currentMillis;
+        longPressTriggered = false;
+        isPressed = true;
+      } else {
+        // Release (rising edge)
+        if (isPressed && !longPressTriggered) {
+          unsigned long pressDuration = currentMillis - pressStartTime;
+          if (pressDuration < LONG_PRESS_MS) {
+            // Valid click detected
+            if (!waitingForClicks) {
+              firstPressTime = currentMillis;
+              waitingForClicks = true;
+              clickCount = 1;
+            } else {
+              // Within the 4-second slot, increment click count
+              clickCount++;
+            }
+          }
+        }
+        isPressed = false;
+      }
+    }
+  }
+
+  // Check long press while held down
+  if (isPressed && !longPressTriggered) {
+    if (currentMillis - pressStartTime >= LONG_PRESS_MS) {
+      longPressTriggered = true;
+      isPressed = false;
+      // Long press action: cancel active watering if watering
+      if (currentState == STATE_WATERING) {
+        systemLog("[BUTTON] Long press detected (>2s) during watering! Cancelling watering cycle.\r\n");
+        digitalWrite(PUMP_PIN, LOW);
+        currentState = STATE_IDLE;
+        remainingCountdownMs = WATERING_INTERVAL_MS;
+        // LED visual feedback: 3 fast flashes
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_PIN, HIGH);
+          delay(100);
+          digitalWrite(LED_PIN, LOW);
+          delay(100);
+        }
+      }
+    }
+  }
+
+  // Check multi-click window expiration (4 seconds total window)
+  if (waitingForClicks && (currentMillis - firstPressTime >= TOTAL_WINDOW_MS)) {
+    waitingForClicks = false;
+    if (clickCount == 1) {
+      systemLog("[BUTTON] Single click detected! Triggering immediate watering cycle.\r\n");
+      currentState = STATE_WATERING;
+      wateringStartMs = currentMillis;
+      remainingCountdownMs = WATERING_INTERVAL_MS;
+      digitalWrite(PUMP_PIN, HIGH);
+      digitalWrite(LED_PIN, HIGH);
+      // LED visual feedback: 1 flash
+      delay(200);
+      digitalWrite(LED_PIN, LOW);
+    } else if (clickCount == 2) {
+      wifiEnabled = !wifiEnabled;
+      systemLog("[BUTTON] Double click detected! Toggling Wi-Fi AP state to: %s\r\n", wifiEnabled ? "ON" : "OFF");
+      
+      preferences.begin("plant-water", false);
+      preferences.putBool("wifi_enabled", wifiEnabled);
+      preferences.end();
+
+      if (wifiEnabled) {
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP(AP_SSID, AP_PASSWORD);
+        wifiApActive = true;
+        udp.begin(UDP_PORT);
+        server.begin();
+        systemLog("[WIFI] Wi-Fi Access Point enabled.\r\n");
+      } else {
+        server.stop();
+        udp.stop();
+        WiFi.softAPdisconnect(true);
+        WiFi.mode(WIFI_OFF);
+        wifiApActive = false;
+        systemLog("[WIFI] Wi-Fi Access Point disabled.\r\n");
+      }
+
+      // LED visual feedback: 2 flashes
+      for (int i = 0; i < 2; i++) {
+        digitalWrite(LED_PIN, HIGH);
+        delay(150);
+        digitalWrite(LED_PIN, LOW);
+        delay(150);
+      }
+    } else {
+      systemLog("[BUTTON] Too many presses (%d)! Invalid action sequence ignored.\r\n", clickCount);
+      // LED visual feedback: 3 rapid error flashes
+      for (int i = 0; i < 3; i++) {
+        digitalWrite(LED_PIN, HIGH);
+        delay(80);
+        digitalWrite(LED_PIN, LOW);
+        delay(80);
+      }
+    }
+    clickCount = 0;
+  }
+
+  // Periodic throttled telemetry handler (every 5 seconds)
   if (currentMillis - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
     lastTelemetryMs = currentMillis;
     float busvoltage = ina219Available ? ina219.getBusVoltage_V() : 0.0f;
@@ -155,18 +324,10 @@ void loop() {
     
     char logBuffer[160];
     snprintf(logBuffer, sizeof(logBuffer),
-             "[TELEMETRY] Uptime: %lus | State: %d | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
-             uptimeSec, (int)currentState, busvoltage, current_mA, remainingCountdownMs / 1000UL);
+             "[TELEMETRY] Uptime: %lus | State: %s | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
+             uptimeSec, getStateName(currentState), busvoltage, current_mA, remainingCountdownMs / 1000UL);
     
-    // Output to Serial
-    Serial.print(logBuffer);
-
-    // Broadcast over UDP if AP is active
-    if (wifiApActive) {
-      udp.beginPacket(broadcastIp, UDP_PORT);
-      udp.write((uint8_t*)logBuffer, strlen(logBuffer));
-      udp.endPacket();
-    }
+    systemLog("%s", logBuffer);
   }
 
   switch (currentState) {
@@ -195,12 +356,12 @@ void loop() {
         preferences.putULong("remaining", remainingCountdownMs);
         preferences.putULong("cycles", cycleCount);
         preferences.end();
-        Serial.println("State persisted to NVS (5 min checkpoint).");
+        systemLog("[SYSTEM] State persisted to NVS (5 min checkpoint).\r\n");
       }
 
       // Check if countdown expired
       if (remainingCountdownMs == 0) {
-        Serial.println("Countdown expired! Starting 60s watering cycle.");
+        systemLog("[SYSTEM] Countdown expired! Starting 60s watering cycle.\r\n");
         currentState = STATE_WATERING;
         wateringStartMs = currentMillis;
         digitalWrite(PUMP_PIN, HIGH);
@@ -216,10 +377,9 @@ void loop() {
       // Check current draw via INA219 if available
       if (ina219Available) {
         float current_mA = ina219.getCurrent_mA();
-        Serial.printf("Pumping Active -> Current: %.2f mA\r\n", current_mA);
-
+        
         if (current_mA < DRY_RUN_THRESHOLD_MA) {
-          Serial.println("ERROR: Dry-run detected! Current below 30mA threshold. Aborting watering cycle!");
+          systemLog("[ERROR] Dry-run detected! Current below 30mA threshold (%.2fmA). Aborting watering cycle!\r\n", current_mA);
           digitalWrite(PUMP_PIN, LOW);
           currentState = STATE_FAULT;
           break;
@@ -228,7 +388,7 @@ void loop() {
 
       // Check if 60s watering duration is complete
       if (currentMillis - wateringStartMs >= WATERING_DURATION_MS) {
-        Serial.println("Watering cycle complete (60s). Shutting off pump.");
+        systemLog("[SYSTEM] Watering cycle complete (60s). Shutting off pump.\r\n");
         digitalWrite(PUMP_PIN, LOW);
         cycleCount++;
         remainingCountdownMs = WATERING_INTERVAL_MS;
@@ -248,7 +408,7 @@ void loop() {
       // Rapid flash for error/fault conditions
       digitalWrite(LED_PIN, (currentMillis / 200) % 2 == 0 ? HIGH : LOW);
       digitalWrite(PUMP_PIN, LOW);
-      Serial.println("SYSTEM FAULT LOCKOUT: Check water reservoir and INA219 sensor.");
+      systemLog("[FAULT] SYSTEM FAULT LOCKOUT: Check water reservoir and INA219 sensor.\r\n");
       delay(2000);
       break;
     }

@@ -64,7 +64,7 @@ graph TD
 ```
 
 ### GPIO & Interface Assignment & Hardware Safety Rules
-* **Pump Control:** GPIO 25 (Digital Output). An external 10kΩ pulldown resistor to GND ensures GPIO 25 stays strictly LOW during ESP32 power-on / bootloader execution.
+* **Pump Control:** GPIO 18 (Digital Output). An external 10kΩ pulldown resistor to GND ensures GPIO 18 stays strictly LOW during ESP32 power-on / bootloader execution.
 * **Current Monitoring (INA219):** I2C Bus (SDA / SCL, default GPIO 21 / 22). Monitors pump motor electrical current for dry-run detection.
 * **Status LED:** GPIO 2 (Digital Output). Visual system state feedback.
 * Strapping pins (GPIO 0, 2, 12, 15) are avoided for pump control to prevent accidental triggers during boot.
@@ -85,14 +85,14 @@ graph TD
 * **FR-C4 (Wireless Telemetry & OTA Firmware Updates):** The ESP32 shall operate an autonomous Wi-Fi Access Point (`PlantWatering_AP`), broadcasting periodic system telemetry packets via UDP every 4 seconds. Additionally, it shall host a synchronous HTTP web server (`WebServer.h` + `Update.h`) on port 80 (`192.168.4.1`) to support secure Over-the-Air (OTA) firmware binary uploads using a dual-app OTA partition layout (`ota_0` and `ota_1`).
 
 ### 4.3 Actuation & Hydraulics Requirements
-* **FR-H1:** The system shall utilize a 12V mini DC water pump switched via an IRLZ44N logic-level MOSFET module (or 3.3V optoisolated relay) controlled by digital GPIO 25 from the ESP32. A 10kΩ external pulldown resistor shall be installed on the MOSFET gate line.
+* **FR-H1:** The system shall utilize a 12V mini DC water pump switched via an IRFZ44N logic-level MOSFET module (or 3.3V optoisolated relay) controlled by digital GPIO 18 from the ESP32. A 10kΩ external pulldown resistor shall be installed on the MOSFET gate line.
 * **FR-H2 (Hydraulic Calibration):** A single watering cycle shall run for a calibrated duration of **60 seconds**, delivering approximately **500ml** total water volume (~125ml per pot). Based on 4x 2 GPH pressure-compensating drippers: total flow = 8 GPH ≈ 504 ml/minute ≈ 8.4 ml/second; 60s × 8.4 ml/s ≈ 504 ml.
 * **FR-H3:** Water shall pass through an inline anti-siphon check valve into a 4-way barbed cross manifold, terminating in 4 individual **2 GPH pressure-compensating drippers** to ensure balanced fluid distribution.
 
 ### 4.4 Safety & Fault Mitigation Requirements
 * **FR-S1 (Dry-Run Protection):** An INA219 current sensor module wired in series with the 12V pump circuit shall monitor motor operating current via I2C. If current drops below the dry-run threshold during active pumping, the ESP32 shall abort the watering cycle, lock out the pump, force GPIO 25 LOW, and signal a fault via rapid LED flash.
 * **FR-S2 (Back-Siphon Prevention):** An anti-siphon check valve shall prevent passive gravity drainage of the bucket when the pump is idle.
-* **FR-S3 (Watchdog / Boot Safety):** Upon any unexpected system reset or boot cycle, the ESP32 initialization sequence shall immediately force GPIO 25 to LOW (OFF) before any other operations. The external 10kΩ pulldown resistor provides redundant hardware-level protection.
+* **FR-S3 (Watchdog / Boot Safety):** Upon any unexpected system reset or boot cycle, the ESP32 initialization sequence shall immediately force GPIO 18 to LOW (OFF) before any other operations. The external 10kΩ pulldown resistor provides redundant hardware-level protection.
 
 ---
 
@@ -101,7 +101,7 @@ graph TD
 ```mermaid
 stateDiagram-v2
     [*] --> BOOT_INIT
-    BOOT_INIT --> STATE_IDLE_COUNTDOWN : Force GPIO 25 LOW & Load NVS
+    BOOT_INIT --> STATE_IDLE_COUNTDOWN : Force GPIO 18 LOW & Load NVS
 
     state STATE_IDLE_COUNTDOWN {
         [*] --> Counting
@@ -114,7 +114,7 @@ stateDiagram-v2
 
     state STATE_WATERING_ACTIVE {
         [*] --> Pumping
-        Pumping : Pump GPIO 25 HIGH (60s timer)
+        Pumping : Pump GPIO 18 HIGH (60s timer)
         Pumping : Monitor current via INA219 (I2C)
         Pumping : LED solid ON
     }
@@ -124,7 +124,7 @@ stateDiagram-v2
 
     state STATE_CYCLE_RESET {
         [*] --> Resetting
-        Resetting : Force GPIO 25 LOW
+        Resetting : Force GPIO 18 LOW
         Resetting : Increment cycle count & reset timer
         Resetting : Save state to NVS
     }
@@ -133,7 +133,7 @@ stateDiagram-v2
 
     state FAULT_LOCKOUT {
         [*] --> Locked
-        Locked : Force GPIO 25 LOW (Emergency Stop)
+        Locked : Force GPIO 18 LOW (Emergency Stop)
         Locked : Rapid LED Flash
         Locked : Await Manual Reset / Reboot
     }

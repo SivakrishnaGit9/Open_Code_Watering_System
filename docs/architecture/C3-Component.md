@@ -10,7 +10,7 @@ graph TD
         main["main.ino / Setup & Loop"]
         timer["Timer Module (millis() 48h Countdown)"]
         nvsManager["NVS Storage Manager (Preferences API)"]
-        pumpController["Pump Controller (GPIO 25 + MOSFET)"]
+        pumpController["Pump Controller (GPIO 18 + MOSFET)"]
         sensorMonitor["INA219 Sensor Monitor (Dry-Run Detection)"]
         ledFeedback["LED Indicator Module (GPIO 2)"]
         wifiAp["Wi-Fi Access Point Module (PlantWatering_AP)"]
@@ -26,7 +26,7 @@ graph TD
         wifiAp --> otaWebServer
 
         timer -->|Every 5 mins| nvsManager
-        pumpController -->|Drives GPIO 25| sensorMonitor
+        pumpController -->|Drives GPIO 18| sensorMonitor
         sensorMonitor -->|Fault Trigger| pumpController
         sensorMonitor -->|Fault Status| ledFeedback
     end
@@ -35,7 +35,7 @@ graph TD
 ## Component Descriptions
 - **Timer Module:** Non-blocking 48-hour countdown timer using `millis()`.
 - **NVS Storage Manager:** Saves countdown state to ESP32 flash memory every 5 minutes.
-- **Pump Controller:** Manages GPIO 25 output with hardware 10k pull-down protection.
+- **Pump Controller:** Manages GPIO 18 output with hardware 10k pull-down protection.
 - **Sensor Monitor:** Polls the INA219 current sensor over I2C to detect dry-running.
 - **LED Feedback:** Provides visual status indication via GPIO 2 LED.
 - **Wi-Fi Access Point Module:** Hosts `PlantWatering_AP` network for local device connection.
