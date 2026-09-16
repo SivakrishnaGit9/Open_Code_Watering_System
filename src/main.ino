@@ -43,7 +43,7 @@ const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
 const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
 const unsigned long TELEMETRY_INTERVAL_MS = 5000UL;                 // 5 seconds periodic telemetry
-const float DRY_RUN_THRESHOLD_MA = -30.0f;                           // < 30mA dry-run threshold
+const float DRY_RUN_THRESHOLD_MA = 100.0f;                           // < 100mA dry-run threshold
 
 Preferences preferences;
 Adafruit_INA219 ina219;
@@ -80,6 +80,11 @@ unsigned long lastTelemetryMs = 0;
 unsigned long wateringStartMs = 0;
 unsigned long cycleCount = 0;
 bool ina219Available = false;
+
+// EMA Filter variables for INA219 current
+float filteredCurrent_mA = 0.0f;
+bool firstCurrentSample = true;
+const float EMA_ALPHA = 0.2f;
 
 const char* getStateName(SystemState state) {
   switch (state) {
@@ -319,13 +324,21 @@ void loop() {
   if (currentMillis - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
     lastTelemetryMs = currentMillis;
     float busvoltage = ina219Available ? ina219.getBusVoltage_V() : 0.0f;
-    float current_mA = ina219Available ? ina219.getCurrent_mA() : 0.0f;
+    float rawCurrent = ina219Available ? ina219.getCurrent_mA() : 0.0f;
+    if (ina219Available) {
+      if (firstCurrentSample) {
+        filteredCurrent_mA = rawCurrent;
+        firstCurrentSample = false;
+      } else {
+        filteredCurrent_mA = (EMA_ALPHA * rawCurrent) + ((1.0f - EMA_ALPHA) * filteredCurrent_mA);
+      }
+    }
     unsigned long uptimeSec = currentMillis / 1000UL;
     
     char logBuffer[160];
     snprintf(logBuffer, sizeof(logBuffer),
              "[TELEMETRY] Uptime: %lus | State: %s | Bus: %.2fV | Current: %.2fmA | Remaining: %lus\r\n",
-             uptimeSec, getStateName(currentState), busvoltage, current_mA, remainingCountdownMs / 1000UL);
+             uptimeSec, getStateName(currentState), busvoltage, filteredCurrent_mA, remainingCountdownMs / 1000UL);
     
     systemLog("%s", logBuffer);
   }
@@ -376,10 +389,16 @@ void loop() {
 
       // Check current draw via INA219 if available
       if (ina219Available) {
-        float current_mA = ina219.getCurrent_mA();
+        float rawCurrent = ina219.getCurrent_mA();
+        if (firstCurrentSample) {
+          filteredCurrent_mA = rawCurrent;
+          firstCurrentSample = false;
+        } else {
+          filteredCurrent_mA = (EMA_ALPHA * rawCurrent) + ((1.0f - EMA_ALPHA) * filteredCurrent_mA);
+        }
         
-        if (current_mA < DRY_RUN_THRESHOLD_MA) {
-          systemLog("[ERROR] Dry-run detected! Current below 30mA threshold (%.2fmA). Aborting watering cycle!\r\n", current_mA);
+        if (filteredCurrent_mA < DRY_RUN_THRESHOLD_MA) {
+          systemLog("[ERROR] Dry-run detected! Filtered current below 100mA threshold (%.2fmA). Aborting watering cycle!\r\n", filteredCurrent_mA);
           digitalWrite(PUMP_PIN, LOW);
           currentState = STATE_FAULT;
           break;
