@@ -38,10 +38,10 @@ const char* serverIndex =
   "<input type='submit' class='btn' value='Update Firmware'>"
   "</form></div></body></html>";
 
-// Timing and thresholds per FSD v2.0
-const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
+// Timing and thresholds for testing (5 min interval, 2 min NVS save)
+const unsigned long WATERING_INTERVAL_MS = 5UL * 60UL * 1000UL;      // 5 minutes for testing
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
-const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
+const unsigned long NVS_SAVE_INTERVAL_MS = 2UL * 60UL * 1000UL;     // 2 minutes for NVS checkpoint
 const unsigned long TELEMETRY_INTERVAL_MS = 5000UL;                 // 5 seconds periodic telemetry
 const float DRY_RUN_THRESHOLD_MA = 40.0f;                           // < 40mA dry-run threshold per refined spec
 
@@ -134,6 +134,14 @@ void setup() {
   remainingCountdownMs = preferences.getULong("remaining", WATERING_INTERVAL_MS);
   cycleCount = preferences.getULong("cycles", 0);
   wifiEnabled = preferences.getBool("wifi_enabled", true);
+  
+  // Ensure stale large NVS countdowns (e.g. from 48h schedule) do not block 5-min testing
+  if (remainingCountdownMs > WATERING_INTERVAL_MS) {
+    Serial.printf("[WARNING] Restored countdown (%lu s) exceeds test interval (%lu s). Resetting to test interval.\r\n", 
+                  remainingCountdownMs / 1000UL, WATERING_INTERVAL_MS / 1000UL);
+    remainingCountdownMs = WATERING_INTERVAL_MS;
+  }
+  
   preferences.end();
 
   Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu | Wi-Fi Enabled: %s\r\n", 
