@@ -43,7 +43,7 @@ const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
 const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
 const unsigned long TELEMETRY_INTERVAL_MS = 5000UL;                 // 5 seconds periodic telemetry
-const float DRY_RUN_THRESHOLD_MA = 100.0f;                           // < 100mA dry-run threshold
+const float DRY_RUN_THRESHOLD_MA = 40.0f;                           // < 40mA dry-run threshold per refined spec
 
 Preferences preferences;
 Adafruit_INA219 ina219;
@@ -84,7 +84,8 @@ bool ina219Available = false;
 // EMA Filter variables for INA219 current
 float filteredCurrent_mA = 0.0f;
 bool firstCurrentSample = true;
-const float EMA_ALPHA = 0.2f;
+const float EMA_ALPHA = 0.05f;
+const unsigned long INRUSH_BLANKING_MS = 4000UL; // 2-second inrush blanking window for motor spin-up
 
 const char* getStateName(SystemState state) {
   switch (state) {
@@ -377,6 +378,7 @@ void loop() {
         systemLog("[SYSTEM] Countdown expired! Starting 60s watering cycle.\r\n");
         currentState = STATE_WATERING;
         wateringStartMs = currentMillis;
+        firstCurrentSample = true;
         digitalWrite(PUMP_PIN, HIGH);
         digitalWrite(LED_PIN, HIGH); // Solid ON during pumping
       }
@@ -387,9 +389,18 @@ void loop() {
       // Solid ON LED during active pumping
       digitalWrite(LED_PIN, HIGH);
 
-      // Check current draw via INA219 if available
+      unsigned long elapsedPumping = currentMillis - wateringStartMs;
+
+      // Monitor motor operating current via INA219 current sensor
       if (ina219Available) {
         float rawCurrent = ina219.getCurrent_mA();
+        
+        // Clamp negative zero-drift quantization noise to 0.0mA
+        if (rawCurrent < 0.0f) {
+          rawCurrent = 0.0f;
+        }
+
+        // Continuously apply EMA filter from t=0 to smooth startup ramp and filter out transients
         if (firstCurrentSample) {
           filteredCurrent_mA = rawCurrent;
           firstCurrentSample = false;
@@ -397,11 +408,14 @@ void loop() {
           filteredCurrent_mA = (EMA_ALPHA * rawCurrent) + ((1.0f - EMA_ALPHA) * filteredCurrent_mA);
         }
         
-        if (filteredCurrent_mA < DRY_RUN_THRESHOLD_MA) {
-          systemLog("[ERROR] Dry-run detected! Filtered current below 100mA threshold (%.2fmA). Aborting watering cycle!\r\n", filteredCurrent_mA);
-          digitalWrite(PUMP_PIN, LOW);
-          currentState = STATE_FAULT;
-          break;
+        // After the 2000ms inrush blanking window expires, evaluate direct dry-run threshold check
+        if (elapsedPumping >= INRUSH_BLANKING_MS) {
+          if (filteredCurrent_mA < DRY_RUN_THRESHOLD_MA) {
+            systemLog("[ERROR] Dry-run detected! Filtered current below 50mA threshold (%.2fmA). Aborting watering cycle!\r\n", filteredCurrent_mA);
+            digitalWrite(PUMP_PIN, LOW);
+            currentState = STATE_FAULT;
+            break;
+          }
         }
       }
 
