@@ -38,10 +38,10 @@ const char* serverIndex =
   "<input type='submit' class='btn' value='Update Firmware'>"
   "</form></div></body></html>";
 
-// Timing and thresholds for testing (5 min interval, 2 min NVS save)
-const unsigned long WATERING_INTERVAL_MS = 5UL * 60UL * 1000UL;      // 5 minutes for testing
+// Timing and thresholds per FSD v2.0
+const unsigned long WATERING_INTERVAL_MS = 48UL * 3600UL * 1000UL; // 48 hours
 const unsigned long WATERING_DURATION_MS = 60UL * 1000UL;           // 60 seconds
-const unsigned long NVS_SAVE_INTERVAL_MS = 2UL * 60UL * 1000UL;     // 2 minutes for NVS checkpoint
+const unsigned long NVS_SAVE_INTERVAL_MS = 5UL * 60UL * 1000UL;     // 5 minutes
 const unsigned long TELEMETRY_INTERVAL_MS = 5000UL;                 // 5 seconds periodic telemetry
 const float DRY_RUN_THRESHOLD_MA = 40.0f;                           // < 40mA dry-run threshold per refined spec
 
@@ -134,14 +134,6 @@ void setup() {
   remainingCountdownMs = preferences.getULong("remaining", WATERING_INTERVAL_MS);
   cycleCount = preferences.getULong("cycles", 0);
   wifiEnabled = preferences.getBool("wifi_enabled", true);
-  
-  // Ensure stale large NVS countdowns (e.g. from 48h schedule) do not block 5-min testing
-  if (remainingCountdownMs > WATERING_INTERVAL_MS) {
-    Serial.printf("[WARNING] Restored countdown (%lu s) exceeds test interval (%lu s). Resetting to test interval.\r\n", 
-                  remainingCountdownMs / 1000UL, WATERING_INTERVAL_MS / 1000UL);
-    remainingCountdownMs = WATERING_INTERVAL_MS;
-  }
-  
   preferences.end();
 
   Serial.printf("Restored State -> Remaining Countdown: %lu s, Total Cycles: %lu | Wi-Fi Enabled: %s\r\n", 
@@ -161,6 +153,7 @@ void setup() {
   if (wifiEnabled) {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
+    delay(100); // Stabilization delay for LwIP TCP/IP task initialization
     IPAddress apIP = WiFi.softAPIP();
     wifiApActive = true;
     Serial.printf("Wi-Fi Access Point Started! SSID: %s | AP IP: %s\r\n", AP_SSID, apIP.toString().c_str());
@@ -171,37 +164,41 @@ void setup() {
     Serial.println("Wi-Fi AP is disabled via NVS preference.");
   }
 
-  // Initialize HTTP OTA Web Server
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/html", serverIndex);
-  });
-  server.on("/update", HTTP_POST, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/html", Update.hasError() ? "FAIL" : "SUCCESS. Rebooting...");
-    delay(1000);
-    ESP.restart();
-  }, []() {
-    HTTPUpload& upload = server.upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      Serial.printf("OTA Update Start: %s\n", upload.filename.c_str());
-      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-        Update.printError(Serial);
+  // Initialize HTTP OTA Web Server routes only if Wi-Fi is enabled
+  if (wifiEnabled) {
+    server.on("/", HTTP_GET, []() {
+      server.sendHeader("Connection", "close");
+      server.send(200, "text/html", serverIndex);
+    });
+    server.on("/update", HTTP_POST, []() {
+      server.sendHeader("Connection", "close");
+      server.send(200, "text/html", Update.hasError() ? "FAIL" : "SUCCESS. Rebooting...");
+      delay(1000);
+      ESP.restart();
+    }, []() {
+      HTTPUpload& upload = server.upload();
+      if (upload.status == UPLOAD_FILE_START) {
+        Serial.printf("OTA Update Start: %s\n", upload.filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+          Update.printError(Serial);
+        }
+      } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+          Update.printError(Serial);
+        }
+      } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {
+          Serial.printf("OTA Update Success: %u bytes\nRebooting...\n", upload.totalSize);
+        } else {
+          Update.printError(Serial);
+        }
       }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      if (Update.end(true)) {
-        Serial.printf("OTA Update Success: %u bytes\nRebooting...\n", upload.totalSize);
-      } else {
-        Update.printError(Serial);
-      }
-    }
-  });
-  server.begin();
-  Serial.println("HTTP OTA Server started on port 80.");
+    });
+    server.begin();
+    Serial.println("HTTP OTA Server started on port 80.");
+  } else {
+    Serial.println("HTTP OTA Server skipped (Wi-Fi is disabled).");
+  }
 
   lastMillis = millis();
   lastNvsSaveMs = millis();
